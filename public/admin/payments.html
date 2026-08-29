@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>LinkShield Admin — GCash Payments</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+  :root{ --ink:#0A0D16; --panel:#12172A; --hairline:#262F4A; --primary:#4F7CFF; --safe:#2ECC71; --danger:#FF4D5E; --ash:#8D97B8; }
+  *{box-sizing:border-box;}
+  body{ background:var(--ink); color:#EAEFFB; font-family:-apple-system,Segoe UI,Inter,sans-serif; margin:0; padding:28px; }
+  h1{ font-size:20px; margin-bottom:4px; }
+  .sub{ color:var(--ash); font-size:13px; margin-bottom:20px; }
+  .token-row{ display:flex; gap:8px; margin-bottom:22px; }
+  .token-row input{ flex:1; padding:10px 12px; border-radius:8px; border:1px solid var(--hairline); background:var(--panel); color:#EAEFFB; font-size:13px; }
+  .token-row button, .filters button{ padding:10px 14px; border-radius:8px; border:1px solid var(--hairline); background:var(--panel); color:#EAEFFB; cursor:pointer; font-size:13px; }
+  .filters{ display:flex; gap:8px; margin-bottom:18px; }
+  .filters button.active{ border-color:var(--primary); color:var(--primary); }
+  table{ width:100%; border-collapse:collapse; }
+  th,td{ text-align:left; padding:10px 12px; border-bottom:1px solid var(--hairline); font-size:13px; vertical-align:top; }
+  th{ color:var(--ash); font-weight:600; text-transform:uppercase; font-size:11px; letter-spacing:0.03em; }
+  .status{ padding:3px 8px; border-radius:6px; font-size:11px; font-weight:600; }
+  .status.pending{ background:rgba(255,201,60,0.12); color:#FFC93C; }
+  .status.approved{ background:rgba(46,204,113,0.12); color:var(--safe); }
+  .status.rejected{ background:rgba(255,77,94,0.12); color:var(--danger); }
+  .actions{ display:flex; gap:6px; }
+  .actions button{ padding:6px 10px; border-radius:6px; border:1px solid var(--hairline); background:transparent; color:#EAEFFB; cursor:pointer; font-size:12px; }
+  .actions .approve{ border-color:var(--safe); color:var(--safe); }
+  .actions .reject{ border-color:var(--danger); color:var(--danger); }
+  .proof-link{ color:var(--primary); font-size:12px; }
+  .empty, .err{ color:var(--ash); font-size:13px; padding:20px 0; }
+  .err{ color:var(--danger); }
+</style>
+</head>
+<body>
+  <h1>GCash Payment Review</h1>
+  <p class="sub">Paste your admin access token once, review submissions, then approve or reject. Approving activates the customer's subscription immediately.</p>
+
+  <div class="token-row">
+    <input id="token" type="password" placeholder="Admin Bearer access token" />
+    <button id="saveToken">Save</button>
+  </div>
+
+  <div class="filters">
+    <button data-status="pending" class="active">Pending</button>
+    <button data-status="approved">Approved</button>
+    <button data-status="rejected">Rejected</button>
+    <button data-status="all">All</button>
+  </div>
+
+  <div id="msg"></div>
+  <table>
+    <thead>
+      <tr><th>Customer</th><th>Plan</th><th>Amount</th><th>Reference</th><th>Proof</th><th>Submitted</th><th>Status</th><th>Actions</th></tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+
+<script>
+(function(){
+  var API_BASE = '/api/admin/payments';
+  var tokenInput = document.getElementById('token');
+  var rowsEl = document.getElementById('rows');
+  var msgEl = document.getElementById('msg');
+  var currentStatus = 'pending';
+
+  tokenInput.value = localStorage.getItem('linkshield_admin_token') || '';
+  document.getElementById('saveToken').addEventListener('click', function(){
+    localStorage.setItem('linkshield_admin_token', tokenInput.value.trim());
+    load();
+  });
+
+  document.querySelectorAll('.filters button').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      document.querySelectorAll('.filters button').forEach(function(b){ b.classList.remove('active'); });
+      btn.classList.add('active');
+      currentStatus = btn.getAttribute('data-status');
+      load();
+    });
+  });
+
+  function authHeaders(){
+    return { 'Authorization': 'Bearer ' + (localStorage.getItem('linkshield_admin_token') || '') };
+  }
+
+  function escapeHtml(s){
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+    });
+  }
+
+  function load(){
+    msgEl.innerHTML = '';
+    rowsEl.innerHTML = '<tr><td colspan="8" class="empty">Loading…</td></tr>';
+    fetch(API_BASE + '?status=' + encodeURIComponent(currentStatus), { headers: authHeaders() })
+      .then(function(r){
+        if(!r.ok) throw new Error(r.status === 403 || r.status === 401 ? 'Invalid or missing admin token' : 'Request failed (' + r.status + ')');
+        return r.json();
+      })
+      .then(function(data){ render(data.items || []); })
+      .catch(function(err){
+        rowsEl.innerHTML = '';
+        msgEl.innerHTML = '<div class="err">' + escapeHtml(err.message) + '</div>';
+      });
+  }
+
+  function render(items){
+    if(!items.length){ rowsEl.innerHTML = '<tr><td colspan="8" class="empty">No payments here.</td></tr>'; return; }
+    rowsEl.innerHTML = items.map(function(p){
+      var proofCell = p.proof_image_path
+        ? '<a class="proof-link" href="#" data-proof-id="' + p.id + '">View</a>'
+        : '<span class="empty">—</span>';
+      var actions = p.status === 'pending'
+        ? '<div class="actions"><button class="approve" data-id="' + p.id + '" data-action="approved">Approve</button><button class="reject" data-id="' + p.id + '" data-action="rejected">Reject</button></div>'
+        : '<span class="empty">' + escapeHtml(p.admin_notes || '') + '</span>';
+      return '<tr>' +
+        '<td>' + escapeHtml(p.full_name || p.email) + '<br><span class="empty">' + escapeHtml(p.email) + '</span></td>' +
+        '<td>' + escapeHtml(p.plan_name) + '</td>' +
+        '<td>₱' + escapeHtml(p.amount_php) + '</td>' +
+        '<td>' + escapeHtml(p.reference_number || '—') + '</td>' +
+        '<td>' + proofCell + '</td>' +
+        '<td>' + new Date(p.created_at).toLocaleString() + '</td>' +
+        '<td><span class="status ' + p.status + '">' + p.status + '</span></td>' +
+        '<td>' + actions + '</td>' +
+        '</tr>';
+    }).join('');
+
+    rowsEl.querySelectorAll('button[data-action]').forEach(function(btn){
+      btn.addEventListener('click', function(){ review(btn.getAttribute('data-id'), btn.getAttribute('data-action')); });
+    });
+    rowsEl.querySelectorAll('a[data-proof-id]').forEach(function(a){
+      a.addEventListener('click', function(e){ e.preventDefault(); viewProof(a.getAttribute('data-proof-id')); });
+    });
+  }
+
+  function viewProof(id){
+    fetch('/api/admin/payments/' + encodeURIComponent(id) + '/proof', { headers: authHeaders() })
+      .then(function(r){ if(!r.ok) throw new Error('Could not load proof image (' + r.status + ')'); return r.blob(); })
+      .then(function(blob){ window.open(URL.createObjectURL(blob), '_blank'); })
+      .catch(function(err){ alert(err.message); });
+  }
+
+  function review(id, action){
+    var notes = action === 'rejected' ? (prompt('Reason for rejecting (optional):') || '') : '';
+    fetch('/api/admin/payments/' + encodeURIComponent(id), {
+      method: 'PATCH',
+      headers: Object.assign({ 'Content-Type': 'application/json' }, authHeaders()),
+      body: JSON.stringify({ status: action, adminNotes: notes })
+    })
+      .then(function(r){ if(!r.ok) throw new Error('Update failed (' + r.status + ')'); return r.json(); })
+      .then(function(){ load(); })
+      .catch(function(err){ alert(err.message); });
+  }
+
+  load();
+})();
+</script>
+</body>
+</html>
