@@ -1,0 +1,60 @@
+const { createClient } = require('@supabase/supabase-js');
+
+// Server-side only: uses the service_role key, which bypasses Row Level
+// Security entirely. NEVER send this key to a client - it stays in Vercel's
+// server-side environment variables and is only used from this file.
+//
+// Payment-proof screenshots can't be written to local disk in a serverless
+// environment (Vercel's filesystem is read-only outside /tmp, and /tmp isn't
+// shared across invocations), so they're stored in a private Supabase
+// Storage bucket ("payment-proofs") instead. The bucket has no public access
+// - files are only readable via getPaymentProofSignedUrl(), which is called
+// from the authenticated admin-only route.
+
+const BUCKET = 'payment-proofs';
+
+let client = null;
+function getClient() {
+  if (client) return client;
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) {
+    throw new Error('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set to handle payment-proof uploads.');
+  }
+  client = createClient(url, key, { auth: { persistSession: false } });
+  return client;
+}
+
+/**
+ * Uploads a payment-proof screenshot buffer (from multer memoryStorage) and
+ * returns the storage object key to persist in manual_payments.proof_image_path.
+ */
+async function uploadPaymentProof({ userId, buffer, mimetype, originalname }) {
+  const ext = (originalname && originalname.includes('.'))
+    ? originalname.slice(originalname.lastIndexOf('.')).toLowerCase()
+    : '.jpg';
+  const objectKey = `${userId}/${Date.now()}${ext}`;
+
+  const { error } = await getClient()
+    .storage
+    .from(BUCKET)
+    .upload(objectKey, buffer, { contentType: mimetype, upsert: false });
+
+  if (error) throw error;
+  return objectKey;
+}
+
+/**
+ * Returns a short-lived signed URL an admin can use to view a proof image.
+ */
+async function getPaymentProofSignedUrl(objectKey, expiresInSeconds = 300) {
+  const { data, error } = await getClient()
+    .storage
+    .from(BUCKET)
+    .createSignedUrl(objectKey, expiresInSeconds);
+
+  if (error) throw error;
+  return data.signedUrl;
+}
+
+module.exports = { uploadPaymentProof, getPaymentProofSignedUrl };
