@@ -5,7 +5,11 @@ const logger = require('../utils/logger');
 function validate(req, res, next) {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    return res.status(422).json({ error: 'Validation failed', details: errors.array() });
+    const details = errors.array();
+    return res.status(422).json({
+      error: details[0].msg, // specific message, e.g. "Password must contain a number"
+      details, // all failing fields, for UIs that want to show every issue
+    });
   }
   next();
 }
@@ -14,7 +18,6 @@ function validate(req, res, next) {
 // eslint-disable-next-line no-unused-vars
 function errorHandler(err, req, res, next) {
   logger.error(err.message, { stack: err.stack, path: req.path });
-
   const isProd = process.env.NODE_ENV === 'production';
   const status = err.status || 500;
   res.status(status).json({
