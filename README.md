@@ -1,7 +1,7 @@
 # LinkShield API
 
 Node.js + Express + PostgreSQL backend for LinkShield ("Check Before You Click").
-
+ 
 ## Setup
 
 ```bash
