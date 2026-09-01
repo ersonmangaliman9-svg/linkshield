@@ -2,7 +2,7 @@
 
 Node.js + Express + PostgreSQL backend for LinkShield ("Check Before You Click"). 
   
-## Setup
+## Setup 
 
 ```bash
 cp .env.example .env    # fill in secrets / API keys
