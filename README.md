@@ -10,7 +10,7 @@ npm install
 psql "$DATABASE_URL" -f db/schema.sql
 npm run dev
 ```
- 
+  
 Health check: `GET /health`
 
 ## Architecture
